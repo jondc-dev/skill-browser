@@ -7,7 +7,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { dirname, join, resolve } from 'path';
 import { existsSync, readFileSync, rmSync } from 'fs';
 
 // Helpers to get package version
@@ -433,6 +433,23 @@ program
     console.log(`  Stored flows: ${chalk.cyan(flowCount.toString())}`);
 
     console.log();
+  });
+
+// ─── exec ─────────────────────────────────────────────────────────────────────
+program
+  .command('exec <script>')
+  .description("Run a script with the skill's Node dependencies available")
+  .allowUnknownOption(true)
+  .action(async (script: string) => {
+    const { execSync } = await import('child_process');
+    const skillDir = resolve(__dirname, '..');
+    const nodeModulesDir = join(skillDir, 'node_modules');
+    const env = {
+      ...process.env,
+      NODE_PATH: nodeModulesDir + (process.env['NODE_PATH'] ? `:${process.env['NODE_PATH']}` : ''),
+    };
+    const args = process.argv.slice(process.argv.indexOf(script) + 1);
+    execSync(`npx tsx ${script} ${args.join(' ')}`, { env, stdio: 'inherit' });
   });
 
 program.parse();
