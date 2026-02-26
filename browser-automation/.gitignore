@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.js.map
+flows/*/user-data/
+flows/*/trace.zip
+flows/*/run-logs/
+flows/*/screenshots/*.png
+.selector-cache.json

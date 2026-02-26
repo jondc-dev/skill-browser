@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# browser-auto — Main CLI entrypoint wrapper
+exec npx tsx "$(dirname "$0")/cli.ts" "$@"
