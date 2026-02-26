@@ -27,6 +27,8 @@ export interface ExecuteOptions {
   cdpUrl?: string;
   headed?: boolean;
   delayBetween?: number;
+  tabUrl?: string;
+  fresh?: boolean;
 }
 
 /** Detect auth failure patterns in the current page */
@@ -49,7 +51,7 @@ async function isAuthFailure(page: Page): Promise<boolean> {
  */
 export async function execute(options: ExecuteOptions): Promise<RunResult> {
   const { name, params = {}, json = false, dryRun = false, lightweight = false,
-    cdpUrl, headed = false, delayBetween = 0 } = options;
+    cdpUrl, headed = false, delayBetween = 0, tabUrl, fresh = false } = options;
 
   const flow = loadFlow(name);
   if (!flow) {
@@ -95,10 +97,29 @@ export async function execute(options: ExecuteOptions): Promise<RunResult> {
 
   // Launch browser
   let context: BrowserContext;
+  let targetPage: Page | undefined;
   if (lightweight) {
     const wsUrl = cdpUrl ?? 'http://localhost:9222';
     const browser = await chromium.connectOverCDP(wsUrl);
-    context = browser.contexts()[0] ?? await browser.newContext();
+    if (fresh) {
+      context = await browser.newContext();
+    } else if (tabUrl) {
+      // Find the first page whose URL matches the given pattern
+      let foundCtx: BrowserContext | undefined;
+      for (const ctx of browser.contexts()) {
+        for (const pg of ctx.pages()) {
+          if (pg.url().includes(tabUrl)) {
+            foundCtx = ctx;
+            targetPage = pg;
+            break;
+          }
+        }
+        if (foundCtx) break;
+      }
+      context = foundCtx ?? browser.contexts()[0] ?? await browser.newContext();
+    } else {
+      context = browser.contexts()[0] ?? await browser.newContext();
+    }
   } else {
     const browser = await chromium.launch({ headless: !headed });
     context = await browser.newContext();
@@ -113,7 +134,7 @@ export async function execute(options: ExecuteOptions): Promise<RunResult> {
   // Enable tracing
   await context.tracing.start({ screenshots: true, snapshots: true });
 
-  const page = await context.newPage();
+  const page = targetPage ?? await context.newPage();
   const screenshots: string[] = [];
   let stepsCompleted = 0;
   let stepError: StepError | undefined;

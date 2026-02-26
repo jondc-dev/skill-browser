@@ -123,6 +123,40 @@ This sets `NODE_PATH` to the skill's `node_modules/` directory so Node.js ESM re
 - Set `NODE_PATH` manually: `NODE_PATH=/path/to/browser-automation/node_modules node my-script.mjs`
 - Global install (for system-wide access): `BROWSER_AUTO_GLOBAL_INSTALL=true bash install.sh`
 
+## Working with SPAs & Lazy-Loaded Components
+
+Modern web apps built with React, Vue, Livewire, Turbo, and similar frameworks render components **lazily** — they don't exist in the DOM until a user interaction loads them. Attempting to query or interact with these components before they mount will fail.
+
+### The Pattern
+
+Always perform the UI interaction (click, hover, navigation) that triggers the component to mount **before** calling `page.evaluate()` or `page.waitForSelector()` on it.
+
+```typescript
+// ❌ WRONG — component doesn't exist yet
+const details = await page.evaluate(() => Livewire.find('details'));
+
+// ✅ CORRECT — trigger the component to mount first
+await page.click('[data-action="open-details"]');
+await page.waitForSelector('.details-panel', { state: 'visible' });
+const details = await page.evaluate(() => Livewire.find('details'));
+```
+
+### Livewire-Specific
+
+Livewire components mount when their parent view is rendered. For detail panels and side drawers, click to open the panel first — the Livewire component ID won't be available until the panel is visible.
+
+### Recording Tips for SPAs
+
+When recording flows for SPAs, include the interaction that triggers component mounting as an **explicit step**. Don't skip clicks or hovers that open panels, drawers, or modals — they are required prerequisites for subsequent steps.
+
+### General SPA Tips
+
+- Use `waitForSelector('.element', { state: 'visible' })` after interactions that reveal new content
+- Use `waitForLoadState('networkidle')` after AJAX-driven page transitions
+- Increase timeouts with `--delay-between <ms>` when components are slow to mount
+- Always wait for overlays and modals to be visible before interacting with their children
+- For single-page navigation (no full reload), prefer waiting for a specific element rather than `waitForLoadState('load')`
+
 ## Security
 
 - All credentials and cookies are encrypted with AES-256-GCM
