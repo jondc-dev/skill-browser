@@ -145,6 +145,18 @@ export function generateStepCode(
       break;
     }
 
+    case 'script': {
+      const scriptPath = step.scriptPath ?? step.value ?? 'custom-script.ts';
+      const importPath = scriptPath.startsWith('./') || scriptPath.startsWith('/') ? scriptPath : './' + scriptPath;
+      lines.push(`  // Custom script step — runs ${scriptPath}`);
+      lines.push(`  {`);
+      lines.push(`    const mod = await import(${JSON.stringify(importPath)});`);
+      lines.push(`    if (typeof mod.default === 'function') await mod.default(page, context, params);`);
+      lines.push(`    else if (typeof mod.run === 'function') await mod.run(page, context, params);`);
+      lines.push(`  }`);
+      break;
+    }
+
     default: {
       lines.push(`  // TODO: unsupported step type: ${(step as RecordedStep).type}`);
     }

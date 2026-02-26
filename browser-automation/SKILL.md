@@ -75,6 +75,8 @@ browser-auto match "I need to approve the gate pass for John arriving Monday"
 | `resume --code <code>` | Resume an MFA-paused flow with a one-time code |
 | `exec <script> [args...]` | Run a script with the skill's Node dependencies (playwright, etc.) available |
 | `doctor` | Run system health checks |
+| `tabs list` | List all open browser tabs (CDP mode) |
+| `tabs clean` | Close duplicate and blank tabs (CDP mode) |
 
 ## Architecture
 

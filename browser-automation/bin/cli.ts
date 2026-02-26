@@ -5,7 +5,6 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { existsSync, readFileSync, rmSync } from 'fs';
@@ -456,6 +455,68 @@ program
     };
     const args = process.argv.slice(process.argv.indexOf(script) + 1);
     execSync(`npx tsx ${script} ${args.join(' ')}`, { env, stdio: 'inherit' });
+  });
+
+// ─── tabs ─────────────────────────────────────────────────────────────────────
+const tabs = program.command('tabs').description('Manage browser tabs (lightweight/CDP mode)');
+
+tabs
+  .command('list')
+  .description('List all open tabs in the connected browser')
+  .option('--cdp-url <url>', 'CDP endpoint URL', 'http://localhost:9222')
+  .action(async (opts: { cdpUrl: string }) => {
+    const { chromium } = await import('playwright');
+    try {
+      const browser = await chromium.connectOverCDP(opts.cdpUrl);
+      const allPages: { title: string; url: string }[] = [];
+      for (const ctx of browser.contexts()) {
+        for (const pg of ctx.pages()) {
+          const title = await pg.title().catch(() => '(untitled)');
+          allPages.push({ title, url: pg.url() });
+        }
+      }
+      if (allPages.length === 0) {
+        console.log(chalk.yellow('No open tabs found.'));
+        return;
+      }
+      console.log(chalk.bold(`\nOpen tabs (${allPages.length}):\n`));
+      for (let i = 0; i < allPages.length; i++) {
+        const p = allPages[i];
+        console.log(`  ${chalk.dim(String(i).padStart(3))}  ${chalk.cyan(p.title.slice(0, 40).padEnd(42))} ${chalk.gray(p.url.slice(0, 80))}`);
+      }
+      console.log();
+    } catch (err) {
+      console.error(chalk.red(`❌ Cannot connect to browser at ${opts.cdpUrl}: ${(err as Error).message}`));
+    }
+  });
+
+tabs
+  .command('clean')
+  .description('Close duplicate and blank tabs')
+  .option('--cdp-url <url>', 'CDP endpoint URL', 'http://localhost:9222')
+  .action(async (opts: { cdpUrl: string }) => {
+    const { chromium } = await import('playwright');
+    try {
+      const browser = await chromium.connectOverCDP(opts.cdpUrl);
+      const seen = new Set<string>();
+      let closed = 0;
+      let total = 0;
+      for (const ctx of browser.contexts()) {
+        for (const pg of ctx.pages()) {
+          total++;
+          const url = pg.url();
+          if (url === 'about:blank' || url.startsWith('chrome://') || seen.has(url)) {
+            await pg.close().catch(() => {});
+            closed++;
+          } else {
+            seen.add(url);
+          }
+        }
+      }
+      console.log(chalk.green(`✅ Closed ${closed} tab(s). ${total - closed} remaining.`));
+    } catch (err) {
+      console.error(chalk.red(`❌ Cannot connect to browser at ${opts.cdpUrl}: ${(err as Error).message}`));
+    }
   });
 
 program.parse();
