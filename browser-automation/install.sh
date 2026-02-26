@@ -23,6 +23,15 @@ if [ "$AVAILABLE_RAM_MB" -lt 1024 ] && [ "$AVAILABLE_RAM_MB" -gt 0 ]; then
   echo "   browser-auto run <flow> --lightweight"
 fi
 
+# Optionally install playwright globally for scripts run outside the skill directory.
+# Use this when you need to import playwright from scripts in arbitrary directories
+# without using `browser-auto exec`. If you use `browser-auto exec <script>` to run
+# custom scripts, NODE_PATH is set automatically and a global install is not needed.
+if [ "${BROWSER_AUTO_GLOBAL_INSTALL:-}" = "true" ]; then
+  echo "Installing Playwright globally..."
+  npm install -g playwright
+fi
+
 # Create flows directory
 mkdir -p flows
 

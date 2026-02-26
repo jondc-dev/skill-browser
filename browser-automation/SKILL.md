@@ -73,6 +73,7 @@ browser-auto match "I need to approve the gate pass for John arriving Monday"
 | `rollback <name>` | Revert a flow to the last working version |
 | `stats <name>` | Show health statistics for a flow |
 | `resume --code <code>` | Resume an MFA-paused flow with a one-time code |
+| `exec <script> [args...]` | Run a script with the skill's Node dependencies (playwright, etc.) available |
 | `doctor` | Run system health checks |
 
 ## Architecture
@@ -105,6 +106,22 @@ Flows are stored in `~/.openclaw/browser-auto/flows/` by default. Each flow dire
 - `auth/` — encrypted auth artifacts
 - `screenshots/` — step-level debug screenshots
 - `run-logs/` — structured execution logs
+
+## Running Custom Scripts
+
+When writing `.mjs` or `.ts` scripts that import `playwright` directly, use `browser-auto exec` to ensure the skill's `node_modules/` is on the module resolution path:
+
+```bash
+# Run a custom script with playwright and other skill dependencies available
+browser-auto exec my-script.ts
+browser-auto exec /tmp/approve-wcrs.mjs --param1 value1
+```
+
+This sets `NODE_PATH` to the skill's `node_modules/` directory so Node.js ESM resolution can find `playwright` regardless of which directory the script runs from.
+
+**Alternatives:**
+- Set `NODE_PATH` manually: `NODE_PATH=/path/to/browser-automation/node_modules node my-script.mjs`
+- Global install (for system-wide access): `BROWSER_AUTO_GLOBAL_INSTALL=true bash install.sh`
 
 ## Security
 

@@ -4,7 +4,7 @@
 
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import { existsSync, writeFileSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { join, isAbsolute } from 'path';
 import chalk from 'chalk';
 import type { RunResult, StepError } from '../lib/step-types.js';
 import { loadCookies, saveCookies } from '../lib/auth-store.js';
@@ -138,14 +138,14 @@ export async function execute(options: ExecuteOptions): Promise<RunResult> {
       }
 
       try {
-        await executeStep(page, context, step, params);
+        await executeStep(page, context, step, params, flowDir);
         stepsCompleted++;
 
         logger.logStep({
           stepIndex: step.index,
           type: step.type,
           status: 'success',
-          selector_used: step.selectors.css,
+          selector_used: step.selectors?.css,
           retries: 0,
         });
 
@@ -170,7 +170,7 @@ export async function execute(options: ExecuteOptions): Promise<RunResult> {
           try {
             const { runAuthFlow } = await import('../templates/auth-template.js');
             await runAuthFlow(name, flow.metadata.url);
-            await executeStep(page, context, step, params);
+            await executeStep(page, context, step, params, flowDir);
             stepsCompleted++;
             continue;
           } catch (authErr) {
@@ -261,7 +261,8 @@ async function executeStep(
   page: Page,
   context: BrowserContext,
   step: import('../lib/step-types.js').RecordedStep,
-  params: Record<string, string>
+  params: Record<string, string>,
+  flowDir: string
 ): Promise<void> {
   const { resilientLocator } = await import('../lib/retry.js');
 
@@ -321,5 +322,21 @@ async function executeStep(
       }
       break;
     }
+    case 'script': {
+      const scriptPath = step.scriptPath ?? step.value;
+      if (!scriptPath) throw new Error(`Script step ${step.index} has no scriptPath or value`);
+      const resolvedPath = isAbsolute(scriptPath) ? scriptPath : join(flowDir, scriptPath);
+      const mod = await import(resolvedPath);
+      if (typeof mod.default === 'function') {
+        await mod.default(page, context, params);
+      } else if (typeof mod.run === 'function') {
+        await mod.run(page, context, params);
+      } else {
+        throw new Error(`Script at ${scriptPath} must export a default function or run()`);
+      }
+      break;
+    }
+    default:
+      throw new Error(`Unsupported step type: "${(step.type as string)}" at step ${step.index}. Known types: navigate, click, type, select, check, keypress, scroll, frame-switch, tab-switch, wait, upload, script`);
   }
 }

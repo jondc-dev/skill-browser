@@ -14,7 +14,8 @@ export type StepType =
   | 'keypress'
   | 'scroll'
   | 'frame-switch'
-  | 'tab-switch';
+  | 'tab-switch'
+  | 'script';
 
 /** Multiple selector strategies per element, in priority order */
 export interface SelectorSet {
@@ -42,6 +43,7 @@ export interface RecordedStep {
   isAuthStep?: boolean;
   mfaType?: 'prompt' | 'totp';
   annotation?: string;
+  scriptPath?: string;
 }
 
 /** Metadata stored alongside a flow's steps */
