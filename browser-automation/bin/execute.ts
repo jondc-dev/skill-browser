@@ -46,6 +46,39 @@ async function isAuthFailure(page: Page): Promise<boolean> {
   }
 }
 
+/** Connect to CDP with retry and exponential backoff */
+async function connectWithRetry(
+  wsUrl: string,
+  maxRetries = 3,
+  baseBackoffMs = 2000,
+  json = false
+): Promise<import('playwright').Browser> {
+  let lastError: Error = new Error('Connection failed');
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const browser = await chromium.connectOverCDP(wsUrl, { timeout: 10000 });
+      browser.contexts(); // verify connection is alive
+      return browser;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt < maxRetries) {
+        const delay = baseBackoffMs * Math.pow(2, attempt);
+        if (!json) {
+          console.warn(chalk.yellow(
+            `  ⚠️  CDP connection attempt ${attempt + 1}/${maxRetries + 1} failed: ${lastError.message}. Retrying in ${delay}ms...`
+          ));
+        }
+        await new Promise(r => setTimeout(r, delay));
+      }
+    }
+  }
+  throw new Error(
+    `Failed to connect to browser at ${wsUrl} after ${maxRetries + 1} attempts. ` +
+    `Last error: ${lastError.message}. ` +
+    `The browser may need to be restarted if it has been running for a long time.`
+  );
+}
+
 /**
  * Execute a single flow run. Returns a structured RunResult.
  */
@@ -100,7 +133,7 @@ export async function execute(options: ExecuteOptions): Promise<RunResult> {
   let targetPage: Page | undefined;
   if (lightweight) {
     const wsUrl = cdpUrl ?? 'http://localhost:9222';
-    const browser = await chromium.connectOverCDP(wsUrl);
+    const browser = await connectWithRetry(wsUrl, 3, 2000, json);
     if (fresh) {
       context = await browser.newContext();
     } else if (tabUrl) {
@@ -120,6 +153,11 @@ export async function execute(options: ExecuteOptions): Promise<RunResult> {
     } else {
       context = browser.contexts()[0] ?? await browser.newContext();
     }
+    // Warn about high tab count
+    const allPages = context.pages();
+    if (allPages.length > 10 && !json) {
+      console.warn(chalk.yellow(`  ⚠️  Browser has ${allPages.length} open tabs. Consider closing unused tabs with: browser-auto tabs clean`));
+    }
   } else {
     const browser = await chromium.launch({ headless: !headed });
     context = await browser.newContext();
@@ -138,6 +176,7 @@ export async function execute(options: ExecuteOptions): Promise<RunResult> {
   const screenshots: string[] = [];
   let stepsCompleted = 0;
   let stepError: StepError | undefined;
+  let activeFrameSelector: string | null = null;
 
   const startTime = Date.now();
 
@@ -159,7 +198,7 @@ export async function execute(options: ExecuteOptions): Promise<RunResult> {
       }
 
       try {
-        await executeStep(page, context, step, params, flowDir);
+        activeFrameSelector = await executeStep(page, context, step, params, flowDir, activeFrameSelector);
         stepsCompleted++;
 
         logger.logStep({
@@ -191,7 +230,7 @@ export async function execute(options: ExecuteOptions): Promise<RunResult> {
           try {
             const { runAuthFlow } = await import('../templates/auth-template.js');
             await runAuthFlow(name, flow.metadata.url);
-            await executeStep(page, context, step, params, flowDir);
+            activeFrameSelector = await executeStep(page, context, step, params, flowDir, activeFrameSelector);
             stepsCompleted++;
             continue;
           } catch (authErr) {
@@ -277,71 +316,107 @@ export async function execute(options: ExecuteOptions): Promise<RunResult> {
   return result;
 }
 
+/** Resolve a locator with frame awareness */
+async function resolveLocator(
+  page: Page,
+  selectors: import('../lib/step-types.js').SelectorSet,
+  activeFrameSelector: string | null
+) {
+  if (activeFrameSelector) {
+    const { prioritizedSelectors } = await import('../lib/selector-engine.js');
+    const selectorList = prioritizedSelectors(selectors);
+    const frame = page.frameLocator(activeFrameSelector);
+    for (const sel of selectorList) {
+      try {
+        const loc = frame.locator(sel).first();
+        if (await loc.isVisible({ timeout: 3000 }).catch(() => false)) return loc;
+      } catch { continue; }
+    }
+    // Fallback: try the first selector even if not visible yet
+    if (selectorList.length > 0) return frame.locator(selectorList[0]).first();
+    throw new Error(`No selector matched in frame "${activeFrameSelector}" for step`);
+  }
+  const { resilientLocator } = await import('../lib/retry.js');
+  return resilientLocator(page, selectors);
+}
+
 /** Execute a single step on the page */
 async function executeStep(
   page: Page,
   context: BrowserContext,
   step: import('../lib/step-types.js').RecordedStep,
   params: Record<string, string>,
-  flowDir: string
-): Promise<void> {
-  const { resilientLocator } = await import('../lib/retry.js');
+  flowDir: string,
+  activeFrameSelector: string | null
+): Promise<string | null> {
 
   switch (step.type) {
     case 'navigate': {
       const url = injectParams(step.url ?? step.pageUrl, params);
       await page.goto(url, { waitUntil: 'networkidle' });
-      break;
+      return activeFrameSelector;
     }
     case 'click': {
-      const loc = await resilientLocator(page, step.selectors);
+      const loc = await resolveLocator(page, step.selectors, activeFrameSelector);
       await loc.click();
-      break;
+      return activeFrameSelector;
     }
     case 'type': {
       const value = injectParams(step.value ?? '', params);
-      const loc = await resilientLocator(page, step.selectors);
+      const loc = await resolveLocator(page, step.selectors, activeFrameSelector);
       await loc.fill(value);
-      break;
+      return activeFrameSelector;
     }
     case 'select': {
       const value = injectParams(step.value ?? '', params);
-      const loc = await resilientLocator(page, step.selectors);
+      const loc = await resolveLocator(page, step.selectors, activeFrameSelector);
       await loc.selectOption(value);
-      break;
+      return activeFrameSelector;
     }
     case 'check': {
-      const loc = await resilientLocator(page, step.selectors);
+      const loc = await resolveLocator(page, step.selectors, activeFrameSelector);
       await loc.check();
-      break;
+      return activeFrameSelector;
     }
     case 'keypress': {
       await page.keyboard.press(step.key ?? 'Enter');
-      break;
+      return activeFrameSelector;
     }
     case 'scroll': {
       const deltaY = parseInt(step.value ?? '300');
       await page.mouse.wheel(0, deltaY);
-      break;
+      return activeFrameSelector;
     }
     case 'frame-switch': {
-      // frame-switch is handled inline — just note it
-      break;
+      const frameSel = step.frameSelector ?? step.selectors?.css ?? null;
+      return frameSel;
     }
     case 'tab-switch': {
       await context.waitForEvent('page');
-      break;
+      return activeFrameSelector;
     }
     case 'wait': {
-      await page.waitForLoadState('networkidle');
-      break;
+      const { prioritizedSelectors } = await import('../lib/selector-engine.js');
+      const selectorList = prioritizedSelectors(step.selectors);
+      if (selectorList.length > 0 && selectorList[0] !== 'body') {
+        if (activeFrameSelector) {
+          const frame = page.frameLocator(activeFrameSelector);
+          await frame.locator(selectorList[0]).waitFor({ state: 'visible', timeout: 15000 });
+        } else {
+          await page.waitForSelector(selectorList[0], { state: 'visible', timeout: 15000 });
+        }
+      } else if (step.url) {
+        await page.waitForURL(step.url, { timeout: 15000 });
+      } else {
+        await page.waitForLoadState('networkidle');
+      }
+      return activeFrameSelector;
     }
     case 'upload': {
       const filePath = injectParams(step.value ?? '', params);
-      if (step.selectors.css) {
-        await page.locator(step.selectors.css).setInputFiles(filePath);
-      }
-      break;
+      const loc = await resolveLocator(page, step.selectors, activeFrameSelector);
+      await loc.setInputFiles(filePath);
+      return activeFrameSelector;
     }
     case 'script': {
       const scriptPath = step.scriptPath ?? step.value;
@@ -355,7 +430,7 @@ async function executeStep(
       } else {
         throw new Error(`Script at ${scriptPath} must export a default function or run()`);
       }
-      break;
+      return activeFrameSelector;
     }
     default:
       throw new Error(`Unsupported step type: "${(step.type as string)}" at step ${step.index}. Known types: navigate, click, type, select, check, keypress, scroll, frame-switch, tab-switch, wait, upload, script`);
