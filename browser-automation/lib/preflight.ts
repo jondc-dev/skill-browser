@@ -8,6 +8,9 @@ import type { PreflightResult } from './step-types.js';
 import { isAuthFresh } from './auth-store.js';
 import { loadParamsSchema, validateParams } from './param-injector.js';
 
+/** Minimum available RAM (MB) required to launch a full browser */
+export const MIN_RAM_MB = 200;
+
 /** Perform an HTTP HEAD request and return true if status < 400 */
 async function isUrlReachable(url: string, timeoutMs = 5000): Promise<boolean> {
   try {
@@ -74,7 +77,7 @@ export async function runPreflight(
 
   // 4. Resource check (RAM)
   const availableRam = getAvailableRamMb();
-  const resources_ok = availableRam > 200; // need at least 200MB
+  const resources_ok = availableRam > MIN_RAM_MB;
   if (!resources_ok) {
     warnings.push(
       `Low memory: only ~${availableRam}MB available. Consider --lightweight mode.`

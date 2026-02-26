@@ -67,14 +67,14 @@ function buildXPath(el: Element): string {
       }
     }
     const tag = current.tagName.toLowerCase();
-    parts.unshift(siblings_count(current) > 1 ? `${tag}[${idx}]` : tag);
+    parts.unshift(siblingsCount(current) > 1 ? `${tag}[${idx}]` : tag);
     current = current.parentElement;
   }
 
   return '//' + parts.join('/');
 }
 
-function siblings_count(el: Element): number {
+function siblingsCount(el: Element): number {
   const parent = el.parentElement;
   if (!parent) return 1;
   return Array.from(parent.children).filter((s) => s.tagName === el.tagName).length;

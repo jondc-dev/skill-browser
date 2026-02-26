@@ -61,21 +61,28 @@ export function archiveCurrentScript(flowDir: string): number {
 }
 
 /**
- * Rollback to the last working version (highest successRate > 0, or most recent).
+ * Rollback to the best previous version using a time-weighted success score.
+ * Blends success rate (70%) with recency (30%) so recent stable versions are preferred.
  * Returns true if rollback succeeded.
  */
 export function rollback(flowDir: string): boolean {
   const history = loadVersionHistory(flowDir);
   if (history.length === 0) return false;
 
-  // Prefer version with highest success rate
-  const sorted = [...history].sort((a, b) => {
-    const aRate = a.successRate ?? 0;
-    const bRate = b.successRate ?? 0;
-    return bRate - aRate || b.version - a.version;
+  const now = Date.now();
+
+  /** Score = 0.7 * successRate + 0.3 * recencyScore (newer = higher) */
+  const scored = history.map((v) => {
+    const successRate = v.successRate ?? 0;
+    const ageMs = now - new Date(v.savedAt).getTime();
+    const maxAgeMs = 30 * 24 * 60 * 60 * 1000; // 30 days
+    const recency = Math.max(0, 1 - ageMs / maxAgeMs);
+    const score = 0.7 * successRate + 0.3 * recency;
+    return { v, score };
   });
 
-  const target = sorted[0];
+  scored.sort((a, b) => b.score - a.score);
+  const target = scored[0].v;
   const archiveFile = join(flowDir, target.scriptFile);
   if (!existsSync(archiveFile)) return false;
 

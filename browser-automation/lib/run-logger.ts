@@ -30,7 +30,8 @@ export class RunLogger {
   }
 
   /** Mark the start of a step */
-  beginStep(_stepIndex: number): void {
+  beginStep(stepIndex: number): void {
+    void stepIndex; // stepIndex is not used here; timing is captured from Date.now()
     this.stepStart = Date.now();
   }
 
