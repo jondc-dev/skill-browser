@@ -61,6 +61,8 @@ program
   .option('--dry-run', 'Validate without running')
   .option('--lightweight', 'Attach to existing browser via CDP instead of launching new')
   .option('--cdp-url <url>', 'CDP endpoint URL (default: http://localhost:9222)')
+  .option('--tab-url <pattern>', 'Target a specific tab by URL pattern (lightweight mode)')
+  .option('--fresh', 'Open a fresh context instead of reusing existing (lightweight mode)')
   .option('--headed', 'Run with visible browser window')
   .option('--delay-between <ms>', 'Delay in ms between steps', '0')
   .action(async (name: string, opts: {
@@ -71,6 +73,8 @@ program
     dryRun?: boolean;
     lightweight?: boolean;
     cdpUrl?: string;
+    tabUrl?: string;
+    fresh?: boolean;
     headed?: boolean;
     delayBetween: string;
   }) => {
@@ -109,6 +113,8 @@ program
         dryRun: opts.dryRun,
         lightweight: opts.lightweight,
         cdpUrl: opts.cdpUrl,
+        tabUrl: opts.tabUrl,
+        fresh: opts.fresh,
         headed: opts.headed,
         delayBetween: parseInt(opts.delayBetween),
       });
